@@ -3,20 +3,20 @@
 Peak / off-peak hour awareness for [pi](https://pi.dev) models.
 
 Some providers charge more (or throttle harder) during published "peak" windows — DeepSeek, for
-example, discounts off-peak usage outside **UTC 01:00-04:00** and **06:00-10:00**. This extension
-lets you declare those windows per model, and shows the result in the status bar whenever that
-model is selected:
+example, discounts off-peak usage outside **UTC 01:00-04:00** and **06:00-10:00** on weekdays, and
+treats the whole weekend as off-peak. This extension lets you declare those windows per model, and
+shows the result in the status bar whenever that model is selected:
 
 ```
 INFO  Model          gpt-5.2-codex
 INFO  Directory      ~/Projects/foo
-      PEAK · ends in 2h05m (UTC 01:00-04:00, 06:00-10:00)
+      PEAK · ends in 2h05m (UTC Mon-Fri 01:00-04:00, 06:00-10:00)
 ```
 
 Off-peak the line flips to:
 
 ```
-      OFF-PEAK · next peak in 1h20m (UTC 01:00-04:00, 06:00-10:00)
+      OFF-PEAK · next peak in 1h20m (UTC Mon-Fri 01:00-04:00, 06:00-10:00)
 ```
 
 Models without a configured window show nothing, so the footer stays clean.
@@ -38,7 +38,7 @@ pi install /path/to/pi-peak
 | `/peak` | Pick a model (current one preselected), then a preset or custom windows |
 | `/peak status` | Detailed state for the current model: now, window, next change |
 | `/peak list` | Every configured model with its config and whether it is in peak hours right now |
-| `/peak set <spec>` | Set windows for the current model, e.g. `/peak set utc 01:00-04:00 06:00-10:00` |
+| `/peak set <spec>` | Set windows for the current model, e.g. `/peak set utc mon-fri 01:00-04:00 06:00-10:00` |
 | `/peak preset <name>` | Apply a named preset to the current model |
 | `/peak clear` | Remove the current model's windows |
 | `/peak help` | Usage summary |
@@ -48,15 +48,21 @@ pi install /path/to/pi-peak
 ### Window specs
 
 ```
-/peak set utc 01:00-04:00 06:00-10:00     # two UTC windows
+/peak set utc 01:00-04:00 06:00-10:00     # two UTC windows, every day
+/peak set utc mon-fri 01:00-04:00 06:00-10:00   # weekdays only; weekends are off-peak
 /peak set local 09:00-17:00               # local wall-clock window
 /peak set 22:00-02:00                     # wraps past midnight (UTC by default)
 /peak set 1-4, 6-10                       # shorthand hours
 /peak set local 9:00am-5:00pm             # am/pm works too
+/peak set 00:00-24:00                     # all day
 ```
 
 The frame (`utc` or `local`) is optional; without it the existing config's frame is kept, or UTC
 for a new config. `local` uses your machine's wall clock, so it follows DST.
+
+An optional day list before a range restricts that range and every following range until the next
+day list: `mon-fri`, `weekdays`, `weekends`, or a comma-separated list such as `mon,wed,fri`. Days
+name the day the window *starts*, so `mon 22:00-02:00` runs into Tuesday morning.
 
 ### Presets
 
@@ -64,7 +70,7 @@ Built in:
 
 | Preset | Windows |
 | --- | --- |
-| `deepseek` | UTC 01:00-04:00, 06:00-10:00 |
+| `deepseek` | Mon-Fri UTC 01:00-04:00, 06:00-10:00 (weekends off-peak) |
 | `utc-business` | UTC 08:00-17:00 |
 | `local-business` | local 09:00-17:00 |
 
@@ -83,8 +89,8 @@ covers every session and project. Hand edits are picked up within ~20 seconds, n
 		"deepseek/deepseek-chat": {
 			"frame": "utc",
 			"windows": [
-				{ "start": "01:00", "end": "04:00" },
-				{ "start": "06:00", "end": "10:00" }
+				{ "start": "01:00", "end": "04:00", "days": [1, 2, 3, 4, 5] },
+				{ "start": "06:00", "end": "10:00", "days": [1, 2, 3, 4, 5] }
 			],
 			"preset": "deepseek",
 			"updatedAt": "2025-01-01T00:00:00.000Z"
@@ -111,6 +117,9 @@ Lookup order for the active model: exact `provider/model`, then `provider/*`, th
 - Windows are half-open: `01:00-04:00` is peak from 01:00:00 up to (not including) 04:00:00.
 - `start` after `end` wraps past midnight (`22:00-02:00`). `24:00` is accepted as end of day.
 - `00:00-24:00` marks the whole day as peak.
+- A window's optional `days` list restricts it to those weekdays (`0` = Sunday … `6` = Saturday).
+  Omitted means every day. The `deepseek` preset uses `[1,2,3,4,5]`, so weekends are off-peak and
+  Friday's countdown points at Monday.
 - Windows in the same config may overlap; the union is what counts.
 - The status line refreshes every 20 seconds but only when its text changes, so a minute-resolution
   countdown never causes redraw churn.

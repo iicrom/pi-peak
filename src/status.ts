@@ -11,6 +11,7 @@ import {
 	formatWindowList,
 	frameLabel,
 	type PeakState,
+	weekdayLabel,
 } from "./windows.ts";
 
 /** Footer status key; the built-in footer renders extension statuses on their own line. */
@@ -20,8 +21,8 @@ export const STATUS_KEY = "peak";
  * One line for the status bar:
  *
  * ```
- * PEAK · ends in 2h05m (UTC 01:00-04:00, 06:00-10:00)
- * OFF-PEAK · next peak in 1h20m (UTC 01:00-04:00, 06:00-10:00)
+ * PEAK · ends in 2h05m (UTC Mon-Fri 01:00-04:00, 06:00-10:00)
+ * OFF-PEAK · next peak in 1h20m (UTC Mon-Fri 01:00-04:00, 06:00-10:00)
  * ```
  */
 export function renderStatusLine(config: ModelPeakConfig, state: PeakState, theme: Theme): string | undefined {
@@ -55,7 +56,8 @@ export function describeState(modelLabel: string, config: ModelPeakConfig, now: 
 	if (state.msUntilChange !== null) {
 		const next = new Date(now.getTime() + state.msUntilChange);
 		const nextLabel = state.peak ? "peak ends" : "peak starts";
-		lines.push(`${nextLabel} in ${formatDuration(state.msUntilChange)} (${currentClock(next, config.frame)} ${zone})`);
+		const when = `${weekdayLabel(next, config.frame)} ${currentClock(next, config.frame)} ${zone}`;
+		lines.push(`${nextLabel} in ${formatDuration(state.msUntilChange)} (${when})`);
 	} else if (state.hasWindows) {
 		lines.push(state.peak ? "peak covers the whole day" : "no upcoming peak");
 	}

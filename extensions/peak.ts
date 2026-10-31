@@ -11,7 +11,7 @@
  *   /peak                                  select a model, then pick a preset or custom windows
  *   /peak status                           current model's peak state, in detail
  *   /peak list                             every configured model and its state right now
- *   /peak set [utc|local] <windows>        set windows for the current model
+ *   /peak set [utc|local] [days] <windows> set windows for the current model
  *   /peak preset <name>                    apply a preset to the current model
  *   /peak clear                            remove the current model's windows
  *   /peak help                             usage
@@ -233,7 +233,10 @@ export default function peakExtension(pi: ExtensionAPI) {
 		}
 		const entry: Omit<ModelPeakConfig, "updatedAt"> = {
 			frame: preset.frame,
-			windows: preset.windows.map((window) => ({ ...window })),
+			windows: preset.windows.map((window) => ({
+				...window,
+				...(window.days === undefined ? {} : { days: [...window.days] }),
+			})),
 			preset: presetName,
 		};
 		if (!writeModelConfig(ctx, key, entry)) return false;
@@ -420,11 +423,13 @@ export default function peakExtension(pi: ExtensionAPI) {
 				"/peak — pick a model, then a preset or custom windows",
 				"/peak status — current model's peak state, in detail",
 				"/peak list — configured models and their state now",
-				"/peak set [utc|local] <windows> — set the current model, e.g. /peak set utc 01:00-04:00 06:00-10:00",
+				"/peak set [utc|local] [days] <windows> — e.g. /peak set utc mon-fri 01:00-04:00 06:00-10:00",
 				"/peak preset <name> — apply a preset to the current model",
 				"/peak clear — remove the current model's windows",
 				`Presets: ${Object.keys(allPresets(config)).sort().join(", ")}`,
 				`Config: ${configFilePath}`,
+				"Windows are half-open; 22:00-02:00 wraps midnight; 00:00-24:00 means all day.",
+				"Days: mon-fri, weekdays, weekends, or a list like mon,wed,fri.",
 			].join("\n"),
 			"info",
 		);

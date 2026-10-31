@@ -4,10 +4,14 @@ import {
 	currentClock,
 	evaluatePeak,
 	formatClock,
+	formatClockBoundary,
+	formatDays,
 	formatDuration,
+	formatSpec,
 	formatWindowList,
 	parseClockToken,
 	parseWindowSpec,
+	type PeakWindow,
 	windowSegments,
 } from "./windows.ts";
 
@@ -35,6 +39,46 @@ test("parseWindowSpec handles the DeepSeek spec", () => {
 	]);
 });
 
+test("parseWindowSpec attaches day lists to windows", () => {
+	const weekdays = [
+		{ start: "01:00", end: "04:00", days: [1, 2, 3, 4, 5] },
+		{ start: "06:00", end: "10:00", days: [1, 2, 3, 4, 5] },
+	];
+	const parsed = parseWindowSpec("utc mon-fri 01:00-04:00 06:00-10:00");
+	assert.equal(parsed.error, undefined);
+	assert.deepEqual(parsed.windows, weekdays);
+	assert.equal(formatWindowList(parsed.windows), "Mon-Fri 01:00-04:00, 06:00-10:00");
+	assert.equal(formatSpec("utc", parsed.windows), "utc Mon-Fri 01:00-04:00, 06:00-10:00");
+
+	assert.deepEqual(parseWindowSpec("weekdays 09:00-17:00").windows, [
+		{ start: "09:00", end: "17:00", days: [1, 2, 3, 4, 5] },
+	]);
+	assert.deepEqual(parseWindowSpec("weekends 00:00-24:00").windows, [
+		{ start: "00:00", end: "24:00", days: [0, 6] },
+	]);
+	assert.deepEqual(parseWindowSpec("mon,wed,fri 09:00-10:00").windows, [
+		{ start: "09:00", end: "10:00", days: [1, 3, 5] },
+	]);
+	assert.equal(formatDays([0, 6]), "Sat-Sun");
+
+	// A new day list changes the days of the ranges that follow it, and the
+	// formatted spec round-trips.
+	const mixed = parseWindowSpec("utc mon-fri 01:00-04:00, sat-sun 12:00-14:00");
+	assert.deepEqual(mixed.windows, [
+		{ start: "01:00", end: "04:00", days: [1, 2, 3, 4, 5] },
+		{ start: "12:00", end: "14:00", days: [0, 6] },
+	]);
+	assert.equal(formatWindowList(mixed.windows), "Mon-Fri 01:00-04:00, Sat-Sun 12:00-14:00");
+	assert.deepEqual(parseWindowSpec(formatSpec(mixed.frame ?? "utc", mixed.windows)).windows, mixed.windows);
+});
+
+test("parseWindowSpec preserves an all-day window as 00:00-24:00", () => {
+	const parsed = parseWindowSpec("utc 00:00-24:00");
+	assert.equal(parsed.error, undefined);
+	assert.deepEqual(parsed.windows, [{ start: "00:00", end: "24:00" }]);
+	assert.deepEqual(windowSegments(parsed.windows), [[0, 1440]]);
+});
+
 test("parseWindowSpec normalizes separators and frames", () => {
 	assert.deepEqual(parseWindowSpec("1-4, 6-10").windows, [
 		{ start: "01:00", end: "04:00" },
@@ -49,6 +93,7 @@ test("parseWindowSpec normalizes separators and frames", () => {
 test("parseWindowSpec reports problems", () => {
 	assert.ok(parseWindowSpec("").error);
 	assert.ok(parseWindowSpec("01:00-01:00").error);
+	assert.ok(parseWindowSpec("24:00-02:00").error);
 	assert.ok(parseWindowSpec("nonsense").error);
 	const trailing = parseWindowSpec("01:00-04:00 banana");
 	assert.ok(trailing.error?.includes("banana"));
@@ -88,6 +133,37 @@ test("evaluatePeak reports state and countdown", () => {
 	assert.equal(lateNight.minutesUntilChange, 120);
 });
 
+test("evaluatePeak skips weekends for weekday-only windows", () => {
+	const windows: PeakWindow[] = [
+		{ start: "01:00", end: "04:00", days: [1, 2, 3, 4, 5] },
+		{ start: "06:00", end: "10:00", days: [1, 2, 3, 4, 5] },
+	];
+
+	// Monday 2024-01-01 is a weekday; Saturday 2024-01-06 and Sunday 07 are not.
+	const monday = evaluatePeak(windows, new Date(Date.UTC(2024, 0, 1, 3, 0)), "utc");
+	assert.equal(monday.peak, true);
+	assert.equal(monday.minutesUntilChange, 60);
+
+	const saturday = evaluatePeak(windows, new Date(Date.UTC(2024, 0, 6, 3, 0)), "utc");
+	assert.equal(saturday.peak, false);
+	assert.equal(saturday.minutesUntilChange, 46 * 60);
+	assert.equal(formatDuration(saturday.msUntilChange!), "1d22h");
+
+	// Friday after the last window: the next peak is Monday 01:00 (63h away).
+	const fridayEvening = evaluatePeak(windows, new Date(Date.UTC(2024, 0, 5, 10, 0)), "utc");
+	assert.equal(fridayEvening.peak, false);
+	assert.equal(fridayEvening.minutesUntilChange, 63 * 60);
+	assert.equal(formatDuration(fridayEvening.msUntilChange!), "2d15h");
+});
+
+test("a wrapping window checks the day it starts", () => {
+	const windows: PeakWindow[] = [{ start: "22:00", end: "02:00", days: [1] }];
+	// Monday 22:00 through Tuesday 02:00 is peak; Wednesday 01:00 is not.
+	assert.equal(evaluatePeak(windows, new Date(Date.UTC(2024, 0, 1, 23, 0)), "utc").peak, true);
+	assert.equal(evaluatePeak(windows, new Date(Date.UTC(2024, 0, 2, 1, 0)), "utc").peak, true);
+	assert.equal(evaluatePeak(windows, new Date(Date.UTC(2024, 0, 3, 1, 0)), "utc").peak, false);
+});
+
 test("evaluatePeak handles all-day and empty configs", () => {
 	const allDay = evaluatePeak([{ start: "00:00", end: "24:00" }], new Date(Date.UTC(2024, 0, 1, 12, 0, 0)), "utc");
 	assert.equal(allDay.peak, true);
@@ -111,7 +187,11 @@ test("formatDuration and friends", () => {
 	assert.equal(formatDuration(45 * 60_000), "45m");
 	assert.equal(formatDuration(80 * 60_000), "1h20m");
 	assert.equal(formatDuration(120 * 60_000), "2h");
+	assert.equal(formatDuration(24 * 60 * 60_000), "1d");
+	assert.equal(formatDuration(63 * 60 * 60_000), "2d15h");
+	assert.equal(formatDuration((63 * 60 + 5) * 60_000), "2d15h05m");
 	assert.equal(formatClock(0), "00:00");
 	assert.equal(formatClock(1440), "00:00");
+	assert.equal(formatClockBoundary(1440), "24:00");
 	assert.equal(formatWindowList([{ start: "01:00", end: "04:00" }]), "01:00-04:00");
 });

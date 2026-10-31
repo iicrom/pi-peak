@@ -1,6 +1,6 @@
 {
 	"name": "pi-peak",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Peak / off-peak hour awareness for models. Configure per-model peak windows (like DeepSeek's UTC 01:00-04:00, 06:00-10:00) and see them in the pi status bar.",
 	"type": "module",
 	"keywords": [

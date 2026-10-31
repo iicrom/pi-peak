@@ -11,7 +11,10 @@
  *   "models": {
  *     "deepseek/deepseek-chat": {
  *       "frame": "utc",
- *       "windows": [{ "start": "01:00", "end": "04:00" }, { "start": "06:00", "end": "10:00" }],
+ *       "windows": [
+ *         { "start": "01:00", "end": "04:00", "days": [1, 2, 3, 4, 5] },
+ *         { "start": "06:00", "end": "10:00", "days": [1, 2, 3, 4, 5] }
+ *       ],
  *       "preset": "deepseek"
  *     },
  *     "deepseek/*": { "frame": "utc", "windows": [] }
@@ -26,7 +29,14 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { type PeakWindow, type TimeFrame, formatWindowList, parseClockToken } from "./windows.ts";
+import {
+	type PeakWindow,
+	type TimeFrame,
+	formatWindowList,
+	isWeekdayValue,
+	normalizeDays,
+	parseClockToken,
+} from "./windows.ts";
 
 export const CONFIG_VERSION = 1;
 export const CONFIG_FILENAME = "peak-hours.json";
@@ -53,16 +63,16 @@ export interface PeakConfigFile {
 }
 
 /**
- * Shipped presets. `deepseek` mirrors the peak windows DeepSeek publishes
- * (UTC 01:00-04:00 and 06:00-10:00), which is the example this plugin was built for.
+ * Shipped presets. `deepseek` mirrors the peak windows DeepSeek publishes on
+ * weekdays (UTC 01:00-04:00 and 06:00-10:00); weekends are off-peak all day.
  */
 export const BUILTIN_PRESETS: Record<string, PeakPreset> = {
 	deepseek: {
-		description: "DeepSeek peak hours (UTC 01:00-04:00, 06:00-10:00)",
+		description: "DeepSeek peak hours on weekdays; weekends stay off-peak",
 		frame: "utc",
 		windows: [
-			{ start: "01:00", end: "04:00" },
-			{ start: "06:00", end: "10:00" },
+			{ start: "01:00", end: "04:00", days: [1, 2, 3, 4, 5] },
+			{ start: "06:00", end: "10:00", days: [1, 2, 3, 4, 5] },
 		],
 	},
 	"local-business": {
@@ -120,10 +130,19 @@ function normalizeWindows(value: unknown): PeakWindow[] {
 	const windows: PeakWindow[] = [];
 	for (const item of value) {
 		if (!isObject(item)) continue;
-		const start = typeof item.start === "string" ? parseClockToken(item.start) : undefined;
+		let start = typeof item.start === "string" ? parseClockToken(item.start) : undefined;
 		const end = typeof item.end === "string" ? parseClockToken(item.end) : undefined;
 		if (start === undefined || end === undefined || start === end) continue;
-		windows.push({ start: formatClockSafe(start), end: formatClockSafe(end) });
+		if (start === 1440) start = 0;
+		const window: PeakWindow = { start: formatClockSafe(start), end: formatClockSafe(end) };
+		if (item.days !== undefined) {
+			// A broken `days` list would silently turn a weekday window into an
+			// all-week one, so drop that window instead of broadening it.
+			if (!Array.isArray(item.days) || !item.days.every(isWeekdayValue)) continue;
+			const days = normalizeDays(item.days);
+			if (days !== undefined) window.days = days;
+		}
+		windows.push(window);
 	}
 	return windows;
 }

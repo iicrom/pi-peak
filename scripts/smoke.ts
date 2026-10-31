@@ -96,14 +96,17 @@ assert.ok(existsSync(configPath), "preset must persist to disk");
 
 const saved = JSON.parse(readFileSync(configPath, "utf-8"));
 assert.deepEqual(saved.models["deepseek/deepseek-chat"].windows, [
-	{ start: "01:00", end: "04:00" },
-	{ start: "06:00", end: "10:00" },
+	{ start: "01:00", end: "04:00", days: [1, 2, 3, 4, 5] },
+	{ start: "06:00", end: "10:00", days: [1, 2, 3, 4, 5] },
 ]);
 assert.equal(saved.models["deepseek/deepseek-chat"].frame, "utc");
 assert.equal(saved.models["deepseek/deepseek-chat"].preset, "deepseek");
 
 const statusLine = statuses.at(-1) ?? "";
-assert.match(statusLine, /^(PEAK · ends in .+|OFF-PEAK · next peak in .+) \(UTC 01:00-04:00, 06:00-10:00\)$/);
+assert.match(
+	statusLine,
+	/^(PEAK · ends in .+|OFF-PEAK · next peak in .+) \(UTC Mon-Fri 01:00-04:00, 06:00-10:00\)$/,
+);
 
 // --- a different model clears the status line ---------------------------
 await setStatus(other);
@@ -113,10 +116,10 @@ assert.equal(statuses.at(-1), undefined, "status line must disappear for unconfi
 await setStatus(deepseek);
 await run("status");
 assert.match(notifications.at(-1) ?? "", /deepseek\/deepseek-chat — (PEAK|off-peak)/);
-assert.match(notifications.at(-1) ?? "", /windows UTC 01:00-04:00, 06:00-10:00/);
+assert.match(notifications.at(-1) ?? "", /windows UTC Mon-Fri 01:00-04:00, 06:00-10:00/);
 
 await run("list");
-assert.match(notifications.at(-1) ?? "", /deepseek\/deepseek-chat · UTC 01:00-04:00, 06:00-10:00/);
+assert.match(notifications.at(-1) ?? "", /deepseek\/deepseek-chat · UTC Mon-Fri 01:00-04:00, 06:00-10:00/);
 
 // --- custom spec, including a midnight-spanning local window ------------
 await run("set local 22:00-02:00");
